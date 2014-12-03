@@ -4,6 +4,8 @@ var favicon = require('serve-favicon');
 var logger = require('morgan');
 var cookieParser = require('cookie-parser');
 var bodyParser = require('body-parser');
+var CronJob = require('cron').CronJob;
+var moment = require('moment');
 
 var routes = require('./routes/index');
 var fetch = require('./routes/fetch');
@@ -56,5 +58,17 @@ app.use(function(err, req, res, next) {
     });
 });
 
+//Schedule fetch every hour
+var cron = new CronJob('0 0 */1 * * *', function() {
+    console.log(moment().format('DD/MM/YYYY HH:mm:ss') + ": " + "Running a scheduled cron job...");
+    fetch.executeFetch(function(success) {
+        if (success) {
+            console.log(moment().format('DD/MM/YYYY HH:mm:ss') + ": " + "Scheduled fetch succeed.");
+        } else {
+            console.error(moment().format('DD/MM/YYYY HH:mm:ss') + ": " + "Scheduled fetch failed.")
+        }
+    });
+});
+cron.start();
 
 module.exports = app;

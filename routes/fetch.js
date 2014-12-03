@@ -9,8 +9,21 @@ String.prototype.isEmpty = function() {
   return (this.length === 0 || !this.trim());
 };
 
-/* GET users listing. */
 router.get('/', function(req, res) {
+  executeFetch(function(success) {
+    if (success) {
+      res.statusCode = 200;
+      res.send();
+    } else {
+      res.statusCode = 503;
+      res.send();
+    }
+  })
+});
+
+var executeFetch = function (callback) {
+  console.log(moment().format('DD/MM/YYYY HH:mm:ss') + ": " + "Fetching data from remote server...");
+
   var asyncCallsNumber = 0;
   var errorLimitLeft = 10;
 
@@ -19,12 +32,14 @@ router.get('/', function(req, res) {
   var sendBackHTML = function(err, resp, html) {
     if (err) {
       if (--errorLimitLeft > 0) {
-        console.error(err);
+        console.error(moment().format('DD/MM/YYYY HH:mm:ss') + ": " + "Failed to fetch data: " + err);
+        console.error(moment().format('DD/MM/YYYY HH:mm:ss') + ": " + "Attempting again...Attempts left: " + errorLimitLeft);
         requestViaProxy('http://1181.ee/kytusehinnad', sendBackHTML);
         return;
       }
-      res.statusCode = 403;
-      res.send();
+      console.error(moment().format('DD/MM/YYYY HH:mm:ss') + ": " + "Failed to fetch data: " + err);
+      console.error(moment().format('DD/MM/YYYY HH:mm:ss') + ": " + "Attempts limit exceeded. Will attempt again at next scheduled launch.");
+      callback(false);
       return;
     }
 
@@ -82,7 +97,7 @@ router.get('/', function(req, res) {
                 onSuccess();
               });
             } else {
-              console.log("No updated data found for station " + stationName + ".");
+              console.log(moment().format('DD/MM/YYYY HH:mm:ss') + ": " + "No updated data found for station " + stationName + ".");
               onSuccess();
             }
           });
@@ -94,10 +109,10 @@ router.get('/', function(req, res) {
 
   function onSuccess() {
     if (--asyncCallsNumber == 0) {
-      res.statusCode = 200;
-      res.send();
+      callback(true);
     }
   }
-});
+};
 
 module.exports = router;
+module.exports.executeFetch = executeFetch;
