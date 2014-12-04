@@ -39,13 +39,12 @@ var executeFetch = function (callback) {
 
   var sendBackHTML = function(error, resp, html) {
     if (error) {
+      err("Failed to fetch data: " + error);
       if (--errorLimitLeft > 0) {
-        err("Failed to fetch data: " + err);
         err("Attempting again...Attempts left: " + errorLimitLeft);
         Request(url, sendBackHTML);
         return;
       }
-      err("Failed to fetch data: " + err);
       err("Attempts limit exceeded. Will attempt again at next scheduled launch.");
       callback(false);
       return;
