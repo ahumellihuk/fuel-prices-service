@@ -93,22 +93,26 @@ var executeFetch = function (callback) {
               name: stationName,
               address: stationAddress
             }
-          }).success(function(station, created) {
+          }).spread(function(station, created) {
             if (created || new Date(pricesValidAsOfDate).getTime() > station.pricelists[0].date.getTime()) {
               models.pricelist.create({
                 price95: price95,
                 price98: price98,
                 priceD: priceD,
                 date: pricesValidAsOfDate
-              }).success(function (priceList) {
+              }).then(function (priceList) {
                 station.addPricelist(priceList);
                 log("Prices updated for station '" + stationName + "'");
                 onSuccess();
+              }, function() {
+                err("Failed to create priceList for station '" + stationName + "'");
               });
             } else {
               log("No updated data found for station " + stationName + ".");
               onSuccess();
             }
+          }, function() {
+            err("Failed to findOrCreate station '" + stationName + "'");
           });
         })(name, data[1][n], data[2][n], data[3][n], data[4][n]);
       }

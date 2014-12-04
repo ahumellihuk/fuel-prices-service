@@ -6,8 +6,10 @@ var models = require("../models");
 
 app.set('port', process.env.PORT || 5000);
 
-models.sequelize.sync().success(function () {
+models.sequelize.sync().then(function () {
   var server = app.listen(app.get('port'), function() {
     debug('Fuel Prices service listening on port ' + server.address().port);
   });
+}, function() {
+  console.error("Failed to synchronize Sequelize! App not started.");
 });
