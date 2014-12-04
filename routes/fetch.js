@@ -5,6 +5,13 @@ var moment = require('moment');
 var express = require('express');
 var router = express.Router();
 
+var neverProxy = process.env.NEVER_PROXY || false;
+var url = 'http://1181.ee/kytusehinnad';
+
+if (neverProxy) {
+  Request = Request.defaults({'proxy':'http://81.20.145.100:3128'});
+}
+
 String.prototype.isEmpty = function() {
   return (this.length === 0 || !this.trim());
 };
@@ -12,9 +19,11 @@ String.prototype.isEmpty = function() {
 router.get('/', function(req, res) {
   executeFetch(function(success) {
     if (success) {
+      log("Sending response - 200 OK");
       res.statusCode = 200;
       res.send();
     } else {
+      log("Sending response - 503 Service unavailable");
       res.statusCode = 503;
       res.send();
     }
@@ -22,50 +31,49 @@ router.get('/', function(req, res) {
 });
 
 var executeFetch = function (callback) {
-  console.log(moment().format('DD/MM/YYYY HH:mm:ss') + ": " + "Fetching data from remote server...");
+  log("Fetching data from remote server...");
 
+  var isRequestProxied = false;
   var asyncCallsNumber = 0;
   var errorLimitLeft = 10;
 
-  var requestViaProxy = Request.defaults({'proxy':'http://81.20.145.100:3128'});
-
-  var sendBackHTML = function(err, resp, html) {
-    if (err) {
+  var sendBackHTML = function(error, resp, html) {
+    if (error) {
       if (--errorLimitLeft > 0) {
-        console.error(moment().format('DD/MM/YYYY HH:mm:ss') + ": " + "Failed to fetch data: " + err);
-        console.error(moment().format('DD/MM/YYYY HH:mm:ss') + ": " + "Attempting again...Attempts left: " + errorLimitLeft);
-        requestViaProxy('http://1181.ee/kytusehinnad', sendBackHTML);
+        err("Failed to fetch data: " + err);
+        err("Attempting again...Attempts left: " + errorLimitLeft);
+        Request(url, sendBackHTML);
         return;
       }
-      console.error(moment().format('DD/MM/YYYY HH:mm:ss') + ": " + "Failed to fetch data: " + err);
-      console.error(moment().format('DD/MM/YYYY HH:mm:ss') + ": " + "Attempts limit exceeded. Will attempt again at next scheduled launch.");
+      err("Failed to fetch data: " + err);
+      err("Attempts limit exceeded. Will attempt again at next scheduled launch.");
       callback(false);
       return;
     }
+    if (!neverProxy && !isRequestProxied && resp.statusCode == 403) {
+      log("Failed to fetch data directly - 403 Forbidden.");
+      log("Attempting to proxy the request through 81.20.145.100:3128 ...");
+      Request = Request.defaults({'proxy':'http://81.20.145.100:3128'});
+      isRequestProxied = true;
+      Request(url, sendBackHTML);
+      return;
+    }
+
+    log("Received response from remote resource - " + resp.statusCode);
 
     //load content into Cheerio
     var $ = Cheerio.load(html);
 
-    var tableHeader = $('#content .head1');
-    var dateString = tableHeader.get(0).children[0].data.substr(21).trim() + " GMT+0200";
-    var pricesValidAsOfDate = moment(dateString, "DD.MM.YYYY HH:mm Z").format();
+    var pricesValidAsOfDate = getPricesValidAsOfDate($);
+    var data = extractTableData($);
 
-    //traverse table and collect data
-    var tr = $('#content table tr');
-    var i = 0;
-    var table = [];
-    tr.each(function(r) {
-      var row = [];
-      var a = 0;
-      $(this).find("td").each(function(d) {
-        row[a++] = $(this).text();
-      });
-      table[i++] = row;
-    });
+    for (var n = 0; n < data[0].length; n++) {
+      var name = data[0][n];
+                             //Currently we don't want to store wholesale prices
+      if (!name.isEmpty() && name != "Hulgihind") {
+        log("Processing station '" + name + "'...");
 
-    for (var n = 0; n < table[0].length; n++) {
-      var stationName = table[0][n];
-      if (!stationName.isEmpty() && stationName != "Hulgihind") {
+        //Closure used in order to make extracted values immutable
         (function(stationName, stationAddress, price95, price98, priceD){
           if (price95 == "-") {
             price95 = null;
@@ -94,18 +102,19 @@ var executeFetch = function (callback) {
                 date: pricesValidAsOfDate
               }).success(function (priceList) {
                 station.addPricelist(priceList);
+                log("Prices updated for station '" + stationName + "'");
                 onSuccess();
               });
             } else {
-              console.log(moment().format('DD/MM/YYYY HH:mm:ss') + ": " + "No updated data found for station " + stationName + ".");
+              log("No updated data found for station " + stationName + ".");
               onSuccess();
             }
           });
-        })(stationName, table[1][n], table[2][n], table[3][n], table[4][n]);
+        })(name, data[1][n], data[2][n], data[3][n], data[4][n]);
       }
     }
   };
-  requestViaProxy('http://1181.ee/kytusehinnad', sendBackHTML);
+  Request(url, sendBackHTML);
 
   function onSuccess() {
     if (--asyncCallsNumber == 0) {
@@ -113,6 +122,46 @@ var executeFetch = function (callback) {
     }
   }
 };
+
+function getPricesValidAsOfDate($) {
+  log("Finding 'prices valid as of' date...");
+  //find table heading
+  var tableHeader = $('#content .head1');
+  //currently it looks like "Kütusehinnad seisuga 03.12.2014 16:21    ", so we need to trim it, and add Timezone at the end.
+  var dateString = tableHeader.get(0).children[0].data.substr(21).trim() + " GMT+0200";
+  //parse datetime string with 'moment' to get the right format
+  var date = moment(dateString, "DD.MM.YYYY HH:mm Z").format();
+
+  log("'prices valid as of' found - " + dateString);
+
+  return date;
+}
+
+function extractTableData($) {
+  log("Parsing table data...");
+  //traverse table and collect data
+  var tableRows = $('#content table tr');
+  var i = 0;
+  var table = [];
+  tableRows.each(function(r) {
+    var row = [];
+    var a = 0;
+    $(this).find("td").each(function(d) {
+      row[a++] = $(this).text();
+    });
+    table[i++] = row;
+  });
+  log("Table data parsed");
+  return table;
+}
+
+function log(message) {
+  console.log(moment().format('DD/MM/YYYY HH:mm:ss') + ": " + message);
+}
+
+function err(message) {
+  console.error(moment().format('DD/MM/YYYY HH:mm:ss') + ": " + message);
+}
 
 module.exports = router;
 module.exports.executeFetch = executeFetch;
