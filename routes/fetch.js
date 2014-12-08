@@ -6,9 +6,10 @@ var express = require('express');
 var router = express.Router();
 
 var neverProxy = process.env.NEVER_PROXY || false;
+var alwaysProxy = process.env.ALWAYS_PROXY || false;
 var url = 'http://1181.ee/kytusehinnad';
 
-if (neverProxy) {
+if (alwaysProxy) {
   Request = Request.defaults({'proxy':'http://81.20.145.100:3128'});
 }
 
@@ -38,6 +39,7 @@ var executeFetch = function (callback) {
   var errorLimitLeft = 10;
 
   var sendBackHTML = function(error, resp, html) {
+    log("Received response: error = " + error + ", resp = " + resp);
     if (error) {
       err("Failed to fetch data: " + error);
       if (--errorLimitLeft > 0) {
@@ -49,7 +51,7 @@ var executeFetch = function (callback) {
       callback(false);
       return;
     }
-    if (!neverProxy && !isRequestProxied && resp.statusCode == 403) {
+    if (!alwaysProxy && !neverProxy && !isRequestProxied && resp.statusCode == 403) {
       log("Failed to fetch data directly - 403 Forbidden.");
       log("Attempting to proxy the request through 81.20.145.100:3128 ...");
       Request = Request.defaults({'proxy':'http://81.20.145.100:3128'});
@@ -68,7 +70,7 @@ var executeFetch = function (callback) {
 
     for (var n = 0; n < data[0].length; n++) {
       var name = data[0][n];
-                             //Currently we don't want to store wholesale prices
+      //Currently we don't want to store wholesale prices
       if (!name.isEmpty() && name != "Hulgihind") {
         log("Processing station '" + name + "'...");
 
