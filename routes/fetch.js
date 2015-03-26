@@ -9,7 +9,7 @@ var neverProxy = process.env.NEVER_PROXY || false;
 var alwaysProxy = process.env.ALWAYS_PROXY || false;
 var url = 'http://1181.ee/kytusehinnad';
 
-if (alwaysProxy) {
+if (alwaysProxy && !neverProxy) {
   Request = Request.defaults({'proxy':'http://81.20.145.100:3128'});
 }
 
@@ -95,7 +95,7 @@ var executeFetch = function (callback) {
               address: stationAddress
             }
           }).spread(function(station, created) {
-            if (created || new Date(pricesValidAsOfDate).getTime() > station.pricelists[0].date.getTime()) {
+            if (created) {
               models.pricelist.create({
                 price95: price95,
                 price98: price98,
@@ -108,6 +108,57 @@ var executeFetch = function (callback) {
               }, function() {
                 err("Failed to create priceList for station '" + stationName + "'");
               });
+            } else if (new Date(pricesValidAsOfDate).getTime() > station.pricelists[0].date.getTime()) {
+                models.pricelist.findAll({where: {stationId: station.id}, order: 'date DESC', limit: 1}).then(function(pricelists) {
+                    var pricelist = pricelists[0];
+                    var trend95 = 0;
+                    if (pricelist.price95 > price95) {
+                        trend95 = -1;
+                    } else if (pricelist.price95 < price95) {
+                        trend95 = 1;
+                    }
+                    var trend98 = 0;
+                    if (pricelist.price98 > price98) {
+                        trend98 = -1;
+                    } else if (pricelist.price98 < price98) {
+                        trend98 = 1;
+                    }
+                    var trendD = 0;
+                    if (pricelist.priceD > priceD) {
+                        trendD = -1;
+                    } else if (pricelist.priceD < priceD) {
+                        trendD = 1;
+                    }
+                    models.pricelist.create({
+                        price95: price95,
+                        trend95: trend95,
+                        price98: price98,
+                        trend98: trend98,
+                        priceD: priceD,
+                        trendd: trendD,
+                        date: pricesValidAsOfDate
+                    }).then(function (priceList) {
+                        station.addPricelist(priceList);
+                        log("Prices updated for station '" + stationName + "'");
+                        onSuccess();
+                    }, function() {
+                        err("Failed to create priceList for station '" + stationName + "'");
+                    });
+                }, function() {
+                    err("Failed to find previous last pricelist");
+                    models.pricelist.create({
+                        price95: price95,
+                        price98: price98,
+                        priceD: priceD,
+                        date: pricesValidAsOfDate
+                    }).then(function (priceList) {
+                        station.addPricelist(priceList);
+                        log("Prices updated for station '" + stationName + "'");
+                        onSuccess();
+                    }, function() {
+                        err("Failed to create priceList for station '" + stationName + "'");
+                    });
+                });
             } else {
               log("No updated data found for station " + stationName + ".");
               onSuccess();
