@@ -9,6 +9,7 @@ router.get('/', function(req, res) {
     models.station.findAll().then(function(stations) {
         models.pricelist.findAll({order: 'date DESC', limit: stations.length})
             .then(function(pricelists) {
+                var result = new Array();
                 for (var i=0; i<stations.length; i++) {
                     var station = stations[i];
                     for (var a=0; a<pricelists.length; a++) {
@@ -17,8 +18,12 @@ router.get('/', function(req, res) {
                             station.dataValues.pricelist = pricelist;
                         }
                     }
+                    //only return stations, that have a price list
+                    if (station.dataValues.pricelist != null) {
+                        result.push(station);
+                    }
                 }
-                res.send(JSON.stringify(stations));
+                res.send(JSON.stringify(result));
         }, function() {
             console.error("Failed to find pricelists data.");
         });
